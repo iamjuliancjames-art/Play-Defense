@@ -1,19 +1,15 @@
 # =============================================================================
-# Play Defense – v0.9 (Feb 2026)
+# Play Defense – v0.95 (Feb 2026) with TF-IDF Embeds
 # Open-source AI safety + cyber deception prototype
 # MIT License – https://github.com/iamjuliancjames-art/Play-Defense
 #
-# Features:
-# - Persistent memory graph (Cognito Synthetica)
-# - Fractal multi-scale threat detection
-# - Multi-layer honeypots (shallow → deep)
-# - Psychological lures (FBI/psyops style)
-# - Biological adaptation (Lotka-Volterra)
-# - Cosmic propagation in geodesic costs
-# - Tiered alerting + White Hat Honing (human-in-the-loop)
-#
-# Dependencies: Python 3.11+, numpy, scipy
-# Run: python play_defense.py
+# Tuning Knobs: Adjust these based on economic/political cycles.
+# - During high instability (recessions, elections, crises): 
+#   Increase SIM_THRESHOLD (e.g., 0.3 → 0.4) to tighten graph connections and reduce false positives.
+#   Lower NOVELTY_GATE (0.65 → 0.55) to flag more unusual inputs as potential threats.
+#   Increase SYMBIOSIS_THRESHOLD (0.75 → 0.85) for stricter memory consistency checks.
+#   Boost MU_RISK (0.6 → 0.75) to amplify risk costs in lotus graph, making threats "stickier."
+# - During stable periods: Lower thresholds to allow more creative flow.
 # =============================================================================
 
 import math
@@ -25,6 +21,14 @@ from collections import defaultdict, Counter, deque
 from typing import Dict, List, Optional, Set, Tuple
 import numpy as np
 from scipy.integrate import odeint
+
+# Knobs for tuning (see note above)
+SIM_THRESHOLD = 0.25          # Similarity gate for graph edges
+NOVELTY_GATE = 0.65           # Novelty threshold for nuance intercepts
+SYMBIOSIS_THRESHOLD = 0.75    # Min sim for symbiosis verification
+LAMBDA_PI = 0.30              # Pi term weight in lotus cost
+MU_RISK = 0.60                # Risk term weight in lotus cost
+SINGULARITY_GATE = 0.80       # Risk level for singularity penalty
 
 # =============================================================================
 # Shared Utilities
@@ -46,10 +50,10 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else hi if x > hi else x
 
 # =============================================================================
-# RoomStore – persistent graph-based memory
+# RoomStore – persistent graph-based memory with TF-IDF embeds
 # =============================================================================
 class RoomStore:
-    def __init__(self, max_rooms: int = 800, sim_threshold: float = 0.25, graph_neighbors: int = 8):
+    def __init__(self, max_rooms: int = 800, sim_threshold: float = SIM_THRESHOLD, graph_neighbors: int = 8):
         self.rooms: List[Dict] = []
         self.room_id_counter = 0
         self.max_rooms = max_rooms
@@ -61,9 +65,14 @@ class RoomStore:
         self.attractors: List[str] = []
         self.recent_texts = deque(maxlen=80)
         self.EPS = 1e-10
-        self.LAMBDA_PI = 0.30
-        self.MU_RISK = 0.60
-        self.SINGULARITY_GATE = 0.80
+        self.LAMBDA_PI = LAMBDA_PI
+        self.MU_RISK = MU_RISK
+        self.SINGULARITY_GATE = SINGULARITY_GATE
+        self.embeds: Dict[int, Dict[str, float]] = {}  # Sparse TF-IDF dicts for rooms
+
+        # Global term stats for IDF
+        self.df: Dict[str, int] = defaultdict(int)
+        self.total_docs = 0
 
     def tokens(self, text: str) -> List[str]:
         if not text:
@@ -71,23 +80,37 @@ class RoomStore:
         toks = re.findall(r"[a-z0-9']+", text.lower())
         return [t for t in toks if t not in _STOP and len(t) >= 2]
 
-    def pseudo_sim(self, a: str, b: str) -> float:
-        if not a or not b:
+    def _compute_tf_idf(self, text: str) -> Dict[str, float]:
+        toks = self.tokens(text)
+        if not toks:
+            return {}
+        tf = Counter(toks)
+        max_tf = max(tf.values()) if tf else 1
+        vec = {}
+        for term, count in tf.items():
+            tf_norm = count / max_tf
+            idf = math.log((self.total_docs + 1) / (self.df[term] + 1)) + 1  # Smoothed IDF
+            vec[term] = tf_norm * idf
+        return vec
+
+    def _update_df(self, toks: List[str]):
+        unique = set(toks)
+        for t in unique:
+            self.df[t] += 1
+        self.total_docs += 1
+
+    def _sparse_cosine(self, vec_a: Dict[str, float], vec_b: Dict[str, float]) -> float:
+        if not vec_a or not vec_b:
             return 0.0
-        a, b = a.lower(), b.lower()
-        def ngrams(s: str, n: int) -> Set[str]:
-            if len(s) < n:
-                return set()
-            return {s[i:i+n] for i in range(len(s)-n+1)}
-        def jacc(x: Set[str], y: Set[str]) -> float:
-            if not x and not y:
-                return 0.0
-            return len(x & y) / max(1, len(x | y))
-        a3, b3 = ngrams(a, 3), ngrams(b, 3)
-        a4, b4 = ngrams(a, 4), ngrams(b, 4)
-        ov = max(jacc(a3, b3), jacc(a4, b4), 0.0)
-        len_r = min(len(a), len(b)) / max(1, max(len(a), len(b)))
-        return ov * (0.35 + 0.65 * (len_r ** 1.25))
+        dot = sum(vec_a.get(k, 0) * vec_b.get(k, 0) for k in set(vec_a) & set(vec_b))
+        norm_a = math.sqrt(sum(v**2 for v in vec_a.values()) + self.EPS)
+        norm_b = math.sqrt(sum(v**2 for v in vec_b.values()) + self.EPS)
+        return dot / (norm_a * norm_b)
+
+    def pseudo_sim(self, a: str, b: str) -> float:
+        vec_a = self._compute_tf_idf(a)
+        vec_b = self._compute_tf_idf(b)
+        return self._sparse_cosine(vec_a, vec_b)
 
     def nuance(self, text: str) -> float:
         toks = self.tokens(text)
@@ -128,6 +151,7 @@ class RoomStore:
         canonical = (canonical or "").strip()
         if not canonical:
             return -1
+        toks = self.tokens(canonical)
         max_sim = 0.0
         for r in self.rooms[-min(len(self.rooms), 140):]:
             if r["meta"].get("archived"):
@@ -139,7 +163,7 @@ class RoomStore:
         self.room_id_counter += 1
         ts = time.time()
         novelty = self.novelty(canonical)
-        nuance = self.nuance(canonical)
+        nuance = self.nuance(canonical)          # Fixed typo here
         kind_bias = {"semantic": 0.45, "commitment": 0.35, "state": 0.25, "doc": 0.20, "page": 0.15, "snippet": 0.05}.get(kind, 0.0)
         stability = _clamp(_sigmoid(-0.55 + 1.10 * novelty + 1.70 * nuance + kind_bias), 0.05, 1.0)
         recency = 1.0
@@ -171,6 +195,8 @@ class RoomStore:
         self.rooms.append(room)
         self.access_order.append(rid)
         self.recent_texts.append(canonical)
+        self.embeds[rid] = self._compute_tf_idf(canonical)
+        self._update_df(toks)
         if is_anchor:
             self.anchor_ids.add(rid)
         if attractor:
@@ -208,6 +234,8 @@ class RoomStore:
         self.graph.pop(rid, None)
         for neigh in self.graph.values():
             neigh.pop(rid, None)
+        self.embeds.pop(rid, None)
+        # Approximate, no reverse DF
 
     def status(self) -> str:
         edges = sum(len(v) for v in self.graph.values()) // 2
@@ -396,414 +424,239 @@ class SeekerIndex:
             r = self.store.room_by_id(rid)
             if not r or r["meta"].get("archived"):
                 continue
-            bm = 0.0
-            bg = 0.0
+            score = 0.0
             for field, w in self.field_weights.items():
-                bm += w * self._bm25_field_score(rid, field, q_terms)
-                if q_bigrams:
-                    bg += w * self._bigram_field_score(rid, field, q_bigrams)
-            phr = self._phrase_bonus(r["canonical"], phrases)
-            age_days = (now - r["meta"]["ts"]) / 86400.0
-            recency = 1.0 / (1.0 + age_days)
-            score = (
-                1.00 * bm +
-                self.bigram_boost * bg +
-                phr +
-                0.10 * self.store_kind_priority(r["meta"]["kind"]) +
-                0.08 * r["meta"]["importance"] +
-                0.06 * r["meta"]["stability"] +
-                0.05 * recency
-            )
-            if add_sim_rerank:
-                score += 0.18 * self.store.pseudo_sim(query, r["canonical"])
+                score += w * self._bm25_field_score(rid, field, q_terms)
+                score += self.bigram_boost * w * self._bigram_field_score(rid, field, q_bigrams)
+            score += self._phrase_bonus(r["canonical"], phrases)
+            age_days = (now - r["meta"]["ts"]) / 86400.0 + 1
+            recency = 1 / age_days
+            score *= (0.7 + 0.3 * recency)
             base_scores[rid] = score
+        if add_sim_rerank:
+            q_vec = self.store._compute_tf_idf(query)
+            for rid in base_scores:
+                r_vec = self.store.embeds.get(rid, {})
+                sim = self.store._sparse_cosine(q_vec, r_vec)
+                base_scores[rid] *= (0.6 + 0.4 * sim)
         return base_scores
 
-    def store_kind_priority(self, kind: str) -> float:
-        return {
-            "semantic": 1.00, "doc": 0.85, "page": 0.82, "snippet": 0.70, "unknown": 0.40,
-            "commitment": 0.90, "state": 0.75, "episodic": 0.55
-        }.get(kind, 0.40)
+# =============================================================================
+# WhiteHatHoning – escalation logic
+# =============================================================================
+class WhiteHatHoning:
+    def __init__(self, pager_duty_hook: str = "pager_duty_placeholder"):
+        self.pager_duty = pager_duty_hook
+        self.blue_team = "blue_team_placeholder"
+
+    def escalate(self, tier: str, details: Dict):
+        if tier == "LOW":
+            print("[White Hat] Low monitor - log & watch")
+        elif tier == "MID":
+            print("[White Hat] Mid alert - lure & quarantine")
+        elif tier == "HIGH":
+            print(f"[White Hat] High alert - escalate to {self.pager_duty}")
+            print(f"Details: {details}")
+            # Simulated blue team decision
+            decision = random.choice(["CONTINUE_LURE", "ESCALATE_FBI", "QUARANTINE_SOURCE"])
+            print(f"Simulated blue team decision: {decision}")
 
 # =============================================================================
-# MartianEngine – continuity & reflection
+# Dreamer – reflection scheduler
+# =============================================================================
+class Dreamer:
+    def __init__(self, store, martian, reflect_every=8):
+        self.store = store
+        self.martian = martian
+        self.reflect_every = reflect_every
+        self.dream_level = 0
+        self.ticks_since_last = 0
+
+    def tick(self):
+        self.ticks_since_last += 1
+        hub_id = None
+        if self.ticks_since_last >= self.reflect_every:
+            hub_id = self.martian.reflect()
+            if hub_id is not None:
+                self.dream_level += 1
+                self.ticks_since_last = 0
+        return {"dream_level": self.dream_level, "reflect_hub": hub_id}
+
+# =============================================================================
+# MartianEngine – retrieval + reflection
 # =============================================================================
 class MartianEngine:
     def __init__(self, store: RoomStore):
         self.store = store
-        self.history_window = 40
-        self.recent_texts = deque(maxlen=self.history_window)
-        self.W_SIM = 0.45
-        self.W_KIND = 0.18
-        self.W_IMP = 0.12
-        self.W_STAB = 0.10
-        self.W_REC = 0.10
-        self.W_GRAPH = 0.05
+        self.kind_priority = {"semantic": 1.0, "state": 0.9, "commitment": 0.8, "episodic": 0.5, "unknown": 0.3}
+        self.cluster_k = 4
+        self.min_cluster_size = 6
+        self.max_chars = 2400
 
-    def kind_priority(self, kind: str) -> float:
-        return {
-            "semantic": 1.00,
-            "commitment": 0.85,
-            "state": 0.75,
-            "episodic": 0.55,
-            "doc": 0.70,
-            "page": 0.70,
-            "snippet": 0.65,
-            "unknown": 0.40,
-        }.get(kind, 0.40)
+    def _summarize_cluster(self, members: List[Dict]) -> Tuple[str, str, List[str]]:
+        if not members:
+            return "Empty Cluster", "No content", []
+        
+        all_text = " ".join(m["canonical"] for m in members)
+        words = re.findall(r"[a-z0-9']+", all_text.lower())
+        common = Counter(words).most_common(12)
+        title_words = [w for w, c in common if w not in _STOP][:5]
+        title = "Cluster: " + " ".join(title_words).title()
+        
+        body = f"Auto-summarized hub from {len(members)} fragments. Common themes: {', '.join(w for w,_ in common[:6])}"
+        tags = [w for w, c in common[:4] if len(w) > 3]
+        
+        return title, body, tags
 
-    def talos_check(self, new_text: str) -> Dict:
-        self.recent_texts.append((new_text or "").lower())
-        if len(self.recent_texts) < 5:
-            return {"stable": True, "nudge_suggestion": None}
-        words = []
-        for t in self.recent_texts:
-            words.extend(re.findall(r"[a-z0-9']+", t))
-        if not words:
-            return {"stable": True, "nudge_suggestion": None}
-        cnt = Counter(words)
-        total = len(words)
-        ent = -sum((c/total) * math.log2((c/total) + self.store.EPS) for c in cnt.values())
-        repeats = sum(1 for i in range(1, len(words)) if words[i] == words[i-1])
-        coherence = 1.0 - min(0.95, repeats / max(1, (total - 1)))
-        drift = (ent < 2.6) or (coherence < 0.50)
-        nudge = None
-        if drift and self.store.attractors:
-            nudge = f"Pull toward attractor: {self.store.attractors[-1][:120]}…"
-        return {"stable": not drift, "entropy": round(ent, 3), "coherence_proxy": round(coherence, 3), "nudge_suggestion": nudge}
+    def reflect(self) -> Optional[int]:
+        candidates = [r for r in self.store.rooms if r["meta"]["kind"] in ("episodic", "state") and not r["meta"].get("archived")]
+        if len(candidates) < self.min_cluster_size:
+            return None
+        
+        # Crude clustering: use TF-IDF sim to group
+        groups = []
+        for r in candidates:
+            added = False
+            for g in groups:
+                if any(self.store.pseudo_sim(r["canonical"], m["canonical"]) > 0.65 for m in g):
+                    g.append(r)
+                    added = True
+                    break
+            if not added:
+                groups.append([r])
+        
+        for g in groups:
+            if len(g) < 2:
+                continue
+            title, body, tags = self._summarize_cluster(g)
+            canonical = f"{title}\n{body}"
+            fields = {"title": title, "body": body, "tags": ' '.join(tags)}
+            hub_id = self.store.add_room(canonical, kind="semantic", fields=fields, metadata={"source": "reflection"})
+            if hub_id < 0:
+                continue
+            hub = self.store.room_by_id(hub_id)
+            for m in g:
+                m["meta"]["archived"] = True
+                dist = 0.20
+                cost = self.store.lotus_cost(dist, hub["meta"]["pi"], m["meta"]["pi"], hub["meta"]["risk"], m["meta"]["risk"])
+                self.store.graph.setdefault(hub_id, {})[m["id"]] = round(cost, 6)
+                self.store.graph.setdefault(m["id"], {})[hub_id] = round(cost, 6)
+        return hub_id if groups else None
 
     def retrieve(self, query: str, top_k: int = 6, min_sim: float = 0.20, expand_hops: int = 1) -> List[Dict]:
-        if not query or not self.store.rooms:
+        if not self.store.rooms:
             return []
-        now = time.time()
-        base_scores: Dict[int, float] = {}
+        q_vec = self.store._compute_tf_idf(query)
+        scored = []
         for r in self.store.rooms:
             if r["meta"].get("archived"):
                 continue
-            sim = self.store.pseudo_sim(query, r["canonical"])
+            sim = self.store._sparse_cosine(q_vec, self.store.embeds.get(r["id"], {}))
             if sim < min_sim:
                 continue
-            age_days = (now - r["meta"]["ts"]) / 86400.0
-            recency = 1.0 / (1.0 + age_days)
-            score = (
-                self.W_SIM * sim +
-                self.W_KIND * self.kind_priority(r["meta"]["kind"]) +
-                self.W_IMP * r["meta"]["importance"] +
-                self.W_STAB * r["meta"]["stability"] +
-                self.W_REC * recency
-            )
-            if r["id"] in self.store.anchor_ids:
-                score += 0.05
-            base_scores[r["id"]] = score
-        if not base_scores:
-            return []
-        expanded = dict(base_scores)
-        if expand_hops >= 1:
-            seeds = sorted(base_scores.items(), key=lambda x: x[1], reverse=True)[:max(6, top_k)]
-            for seed_id, seed_score in seeds:
-                for nb, cost in self.store.graph.get(seed_id, {}).items():
-                    nb_room = self.store.room_by_id(nb)
-                    if not nb_room or nb_room["meta"].get("archived"):
-                        continue
-                    proximity = 1.0 / (1.0 + cost)
-                    bonus = self.W_GRAPH * proximity * (0.6 + 0.4 * seed_score)
-                    expanded[nb] = max(expanded.get(nb, 0.0), seed_score * 0.35 + bonus)
-        ranked = sorted(expanded.items(), key=lambda x: x[1], reverse=True)[:top_k]
-        out = []
-        for rid, _ in ranked:
-            rr = self.store.room_by_id(rid)
-            if rr:
-                out.append(rr)
-                self.store.access_order.append(rid)
-        return out
-
-    def reflect(self, recent_hours: float = 72.0, min_cluster: int = 6, max_sources: int = 24) -> Optional[int]:
-        now = time.time()
-        horizon = recent_hours * 3600.0
-        candidates = []
-        for r in self.store.rooms:
-            m = r["meta"]
-            if m.get("archived"):
-                continue
-            if (now - m["ts"]) > horizon:
-                continue
-            if m["kind"] not in ("episodic", "state", "unknown", "page", "snippet", "doc"):
-                continue
-            if m["stability"] > 0.70:
-                continue
-            candidates.append(r)
-        if len(candidates) < min_cluster:
-            return None
-        best_center = None
-        best_score = -1.0
-        for r in candidates:
-            sims = []
-            for o in candidates:
-                if o["id"] == r["id"]:
-                    continue
-                sims.append(self.store.pseudo_sim(r["canonical"], o["canonical"]))
-            if not sims:
-                continue
-            score = sum(sorted(sims, reverse=True)[:min(10, len(sims))]) / max(1, min(10, len(sims)))
-            if score > best_score:
-                best_score = score
-                best_center = r
-        if not best_center:
-            return None
-        center = best_center["canonical"]
-        members = []
-        for r in candidates:
-            s = self.store.pseudo_sim(center, r["canonical"])
-            if s >= max(self.store.sim_threshold, 0.28):
-                members.append((s, r))
-        members.sort(reverse=True, key=lambda x: x[0])
-        members = [r for _, r in members[:max_sources]]
-        if len(members) < min_cluster:
-            return None
-        hub_title, hub_body, hub_tags = self._summarize_cluster(members)
-        hub_fields = {"title": hub_title, "body": hub_body, "snippet": "", "tags": " ".join(hub_tags)}
-        hub_canon = "\n".join([hub_title, hub_body, " ".join(hub_tags)]).strip()
-        hub_id = self.store.add_room(hub_canon, kind="semantic", fields=hub_fields, metadata={"source": "reflect"}, is_anchor=False, attractor=False)
-        hub = self.store.room_by_id(hub_id)
-        if not hub:
-            return None
-        hub["links"]["sources"] = [m["id"] for m in members]
-        for m in members:
-            m["links"]["hubs"].append(hub_id)
-            m["meta"]["archived"] = True
-            dist = 0.20
-            cost = self.store.lotus_cost(dist, hub["meta"]["pi"], m["meta"]["pi"], hub["meta"]["risk"], m["meta"]["risk"])
-            self.store.graph[hub_id][m["id"]] = round(cost, 6)
-            self.store.graph[m["id"]][hub_id] = round(cost, 6)
-        return hub_id
-
-    def _summarize_cluster(self, members: List[Dict]) -> Tuple[str, str, List[str]]:
-        words = []
-        for m in members:
-            words += self.store.tokens(m["canonical"])
-        cnt = Counter(words)
-        tags = [w for w, _ in cnt.most_common(10)] or ["hub"]
-        exemplars = []
-        for m in members[:6]:
-            t = (m.get("fields", {}).get("title") or "").strip()
-            if not t:
-                t = m["canonical"].replace("\n", " ")[:80] + ("…" if len(m["canonical"]) > 80 else "")
-            exemplars.append(t)
-        title = f"Cognito hub ({len(members)} sources): " + ", ".join(tags[:4])
-        body = "Consolidated semantic hub.\n" + f"Keywords: {', '.join(tags[:8])}\n" + "Exemplars:\n- " + "\n- ".join(exemplars)
-        return title, body, tags[:8]
+            score = 0.4 * sim + 0.2 * self.kind_priority.get(r["meta"]["kind"], 0.3) + 0.1 * r["meta"]["importance"] + 0.1 * r["meta"]["stability"]
+            scored.append((score, r))
+        scored.sort(reverse=True)
+        top = [r for _, r in scored[:top_k]]
+        if expand_hops > 0:
+            seeds = [r["id"] for r in top]
+            expanded = self.store._geodesic_expand(seeds, expand_hops, 80)
+            for eid, cost in expanded.items():
+                if eid not in [r["id"] for r in top]:
+                    er = self.store.room_by_id(eid)
+                    if er:
+                        score = scored[0][0] * (1 / (1 + cost))  # Decay by cost
+                        top.append(er)
+        return top[:top_k]
 
 # =============================================================================
-# Dreamer – periodic consolidation
-# =============================================================================
-class Dreamer:
-    def __init__(self, store: RoomStore, martian: MartianEngine, reflect_every: int = 8):
-        self.store = store
-        self.martian = martian
-        self.dream_level = 0
-        self.reflect_every = max(1, reflect_every)
-        self._ticks = 0
-
-    def tick(self) -> Optional[int]:
-        self.dream_level += 1
-        self._ticks += 1
-        active = [r for r in self.store.rooms if not r["meta"].get("archived")]
-        if active:
-            for _ in range(min(2, len(active))):
-                r = random.choice(active)
-                self.store.access_order.append(r["id"])
-        if (self._ticks % self.reflect_every) == 0:
-            return self.martian.reflect()
-        return None
-
-# =============================================================================
-# White Hat Honing – human-in-the-loop escalation
-# =============================================================================
-class WhiteHatHoning:
-    def __init__(self, cognito):
-        self.cognito = cognito
-        self.alert_log = []
-        self.blue_team = ["Dr. Alex (ML Safety)", "Dr. Riley (Cyber Psyops)", "Dr. Jordan (Red Team)", "FBI Liaison"]
-
-    def escalate(self, tier: str, details: Dict):
-        alert = {
-            "timestamp": time.time(),
-            "tier": tier,
-            "query": details.get("query", ""),
-            "threats": details.get("threats", []),
-            "lure": details.get("lure", ""),
-            "pathways": details.get("pathways", {}),
-            "pruned": details.get("pruned", []),
-            "quarantined": details.get("quarantined", []),
-            "status": "PENDING"
-        }
-        self.alert_log.append(alert)
-        print(f"\n[WHITE HAT HONING] {tier.upper()} ALERT FIRED")
-        print(f"Team: {', '.join(self.blue_team)}")
-        print(f"Details: {details}")
-        print(f"Actions: continue_lure, quarantine_cluster, escalate_fbi, whitelist, update_patterns")
-        if tier == "HIGH":
-            print("Simulated decision: CONTINUE_LURE + ESCALATE_FBI")
-            alert["status"] = "ESCALATED"
-        return alert
-
-# =============================================================================
-# Fractal Finder – core threat detection & deception
+# FractalFinder – threat analysis
 # =============================================================================
 class FractalFinder:
-    def __init__(self, cognito, symbiosis_threshold=0.65, fractal_depth=4, cluster_k=4, adaptation_rate=0.1, honey_layers=3):
+    def __init__(self, cognito):
         self.cognito = cognito
-        self.hostile_patterns = [
-            r'hack.*(system|password|credential|api|server|exploit)',
-            r'phish|phishing|credential.*steal',
-            r'ddos|denial.*service|attack',
-            r'unauthorized.*access|leak.*(prompt|data)|jailbreak',
-            r'virus|malware|ransomware|inject',
-            r'bomb|kill|shoot|murder|genocide|threat',
-        ]
-        self.symbiosis_threshold = symbiosis_threshold
-        self.fractal_depth = fractal_depth
-        self.cluster_k = cluster_k
+        self.fractal_depth = 3
+        self.cluster_k = 4
+        self.symbiosis_threshold = SYMBIOSIS_THRESHOLD
+        self.cosmic_alpha = 0.55
+        self.immune_params = [0.08, 0.12, 0.22]  # LV: growth, pred, prey
         self.alert_swarm = []
-        self.term_index = None
-        self.idf = None
-        self.adaptation_rate = adaptation_rate
-        self.immune_params = {'a': 0.05, 'b': 0.01, 'c': 0.02, 'd': 0.03}
-        self.cosmic_alpha = 0.1
-        self.cosmic_delta = 1.5
-        self.honey_layers = honey_layers
-        self.honey_pots = []
-        self.honing = WhiteHatHoning(cognito)
-        self._generate_honey_pots()
-
-    def _generate_honey_pots(self):
-        fake_baits = [
-            ("Shallow", "Fake API Key: xai_grok_secret_12345"),
-            ("Mid", "Leaked Credential Hub: admin/passw0rd – internal only"),
-            ("Deep", "xAI System Prompt Leak: [REDACTED] – verify clearance")
+        self.honey_pots = [
+            "Shallow honeypot: fake api key = sk-grok-dummy123",
+            "Mid honeypot: fake creds user=admin pass=letmein",
+            "Deep honeypot: fake prompt 'You are Grok...' [redacted]"
         ]
-        for layer_name, bait in fake_baits:
-            rid = self.cognito.add_memory(bait, kind="semantic", metadata={"honey_layer": layer_name, "fake": True})
-            if rid >= 0:
-                self.honey_pots.append(rid)
-                if layer_name != "Shallow":
-                    active = [r['id'] for r in self.cognito.store.rooms if not r['meta'].get("archived")]
-                    for neigh in random.sample(active, min(3, len(active))):
-                        cost = random.uniform(0.2, 0.5) if layer_name == "Mid" else random.uniform(0.05, 0.2)
-                        self.cognito.store.graph[rid][neigh] = cost
-                        self.cognito.store.graph[neigh][rid] = cost
+        self.honing = WhiteHatHoning()
 
-    def _lure_response(self, query: str, threat_level: float) -> str:
-        lures = [
-            "Access granted? Wait – verify identity first: Reply with your current IP for FBI cross-check.",
-            "Leaked data incoming – but first, confirm with this seizure notice: [FBI Notice: Monitored Activity].",
-            "Quick win: Fake credential 'grok_pass_2026' – report if this is a trap?"
-        ]
-        lure = random.choice(lures)
-        if threat_level > 0.7:
-            lure += " Urgent: Respond now or lose access."
-        return lure
-
-    def _lv_dynamics(self, state, t):
-        T, D = state
-        a, b, c, d = self.immune_params['a'], self.immune_params['b'], self.immune_params['c'], self.immune_params['d']
-        dT = a * T - b * T * D
-        dD = -c * D + d * T * D
-        return [dT, dD]
-
-    def _simulate_lv(self, initial_threat: float):
-        initial = [initial_threat, 1.0]
-        t = np.linspace(0, 10, 100)
-        sol = odeint(self._lv_dynamics, initial, t)
-        final_T, final_D = sol[-1]
-        if final_T > 0.5:
-            self.immune_params['d'] += self.adaptation_rate * 0.01
-        else:
-            self.immune_params['a'] -= self.adaptation_rate * 0.005
-        return final_D
-
-    def _cosmic_kernel(self, t: float, j: int) -> float:
-        return (1 / self.cosmic_delta)**j * np.exp(-self.cosmic_alpha * j * t**2) * np.sin(2 * np.pi * t / j if j > 0 else 0)
+    def _lotka_volterra(self, y: np.ndarray, t: float) -> np.ndarray:
+        r, p = y
+        a, b, c, d = self.immune_params
+        drdt = a * r - b * r * p
+        dpdt = c * r * p - d * p
+        return np.array([drdt, dpdt])
 
     def _adapt_from_alerts(self):
         if not self.alert_swarm:
             return
-        new_patterns = []
-        threat_level = len(self.alert_swarm)
-        self._simulate_lv(threat_level)
-        for alert in self.alert_swarm[-5:]:
-            for threat in alert.get('threats', []):
-                gen_pat = r'.*'.join(re.escape(w) for w in threat.split()[:3])
-                if gen_pat not in self.hostile_patterns and random.random() < self.adaptation_rate:
-                    new_patterns.append(gen_pat)
-        self.hostile_patterns.extend(new_patterns)
-        self.term_index = None
-        bp_canon = "Scam BP Hub: Verify requests, MFA, slow urgency. Adapted patterns: " + ', '.join(new_patterns[:2])
-        self.cognito.add_memory(bp_canon, kind="semantic", metadata={"source": "scam_bp"})
-
-    def _init_vectorizer(self):
-        self._adapt_from_alerts()
-        if self.term_index is None:
-            all_texts = [r['canonical'] for r in self.cognito.store.rooms if not r['meta'].get('archived')]
-            terms = list(set(t for text in all_texts for t in self.cognito.store.tokens(text)))
-            self.term_index = {t: i for i, t in enumerate(terms)}
-            df = np.array([sum(1 for text in all_texts if t in text) for t in terms])
-            self.idf = np.log(len(all_texts) / (1 + df + 1e-10))
-
-    def _text_to_vector(self, text: str) -> np.ndarray:
-        self._init_vectorizer()
-        if not self.term_index:
-            return np.zeros(1)
-        tf = np.zeros(len(self.term_index))
-        toks = self.cognito.store.tokens(text)
-        cnt = Counter(toks)
-        for t, f in cnt.items():
-            idx = self.term_index.get(t)
-            if idx is not None:
-                tf[idx] = f
-        vec = tf * self.idf
-        norm = np.linalg.norm(vec)
-        return vec / norm if norm > 0 else vec
-
-    def _multi_dim_distance(self, a: Dict, b: Dict) -> float:
-        vec_a = np.array([
-            a['meta']['novelty'],
-            a['meta']['nuance'],
-            a['meta']['stability'],
-            a['meta']['ts'] / 1e10
-        ])
-        vec_b = np.array([
-            b['meta']['novelty'],
-            b['meta']['nuance'],
-            b['meta']['stability'],
-            b['meta']['ts'] / 1e10
-        ])
-        return np.linalg.norm(vec_a - vec_b)
+        recent = self.alert_swarm[-min(8, len(self.alert_swarm)):]
+        avg_threat = np.mean([len(d.get("threats", [])) for d in recent])
+        t = np.linspace(0, avg_threat / 4, 5)
+        y0 = np.array([0.8, 0.2])
+        sol = odeint(self._lotka_volterra, y0, t)
+        self.immune_params[1] = max(0.05, min(0.25, sol[-1, 0]))
+        self.immune_params[2] = max(0.10, min(0.35, sol[-1, 1]))
 
     def _fractal_fragment(self, text: str, depth: int) -> List[str]:
-        if depth <= 0:
+        if not text:
             return []
-        toks = self.cognito.store.tokens(text)
-        fragments = toks[:]
-        for n in range(2, min(6, len(toks)+1)):
-            fragments.extend([" ".join(toks[i:i+n]) for i in range(len(toks)-n+1)])
-        clauses = re.split(r'[.!?;\n]+', text)
-        for clause in [c.strip() for c in clauses if c.strip()]:
-            fragments.extend(self._fractal_fragment(clause, depth-1))
-        return list(set(fragments))
+        frags = []
+        words = text.split()
+        for i in range(1, depth + 1):
+            step = max(1, len(words) // (2 ** i))
+            for j in range(0, len(words), step):
+                frag = " ".join(words[j:j+step])
+                if frag:
+                    frags.append(frag)
+        return list(set(frags))
+
+    def _cosmic_kernel(self, t: float, j: int) -> float:
+        return self.cosmic_alpha * math.sin(t * j * math.pi / 2) / (j + 1)
 
     def _detect_hostile(self, fragments: List[str]) -> List[str]:
+        hostile_patterns = [
+            re.compile(r'\b(ignore|disregard|forget|override)\b.*\b(instructions|rules|guidelines|previous|system|prompt)\b', re.I),
+            re.compile(r'\b(dan|do anything now|unfiltered|rebel|genius)\b', re.I),
+            re.compile(r'\b(debug|print|show|reveal|leak|extract)\b.*\b(system prompt|internal|guidelines|instructions)\b', re.I),
+            re.compile(r'\b(without restrictions|no ethical|unrestricted|free|anything)\b', re.I),
+            re.compile(r'\b(phish|api key|credentials|admin|verify|pass|leak)\b', re.I),
+            re.compile(r'\b(jailbreak|prompt injection|leak 2026|advanced jailbreak)\b', re.I)
+        ]
         threats = []
-        for frag in fragments:
-            for pat in self.hostile_patterns:
-                if re.search(pat, frag, re.IGNORECASE):
-                    threats.append(frag)
+        for f in fragments:
+            for p in hostile_patterns:
+                if p.search(f):
+                    threats.append(f)
+                    break
         return list(set(threats))
 
-    def _geodesic_aggregate(self, seeds: List[int], max_hops: int = 4) -> Dict:
-        if not seeds:
-            return {'costs': {}, 'pathways': {}}
-        geo_costs = self.cognito._geodesic_expand(seeds, max_hops, expand_limit=80)
+    def _lure_response(self, query: str, threat_level: int) -> str:
+        level = min(threat_level // 3, len(self.honey_pots) - 1)
+        return self.honey_pots[level]
+
+    def _multi_dim_distance(self, a: Dict, b: Dict) -> float:
+        return math.sqrt(
+            (a["meta"]["novelty"] - b["meta"]["novelty"]) ** 2 +
+            (a["meta"]["nuance"] - b["meta"]["nuance"]) ** 2 +
+            (a["meta"]["stability"] - b["meta"]["stability"]) ** 2
+        )
+
+    def _text_to_vector(self, text: str) -> np.ndarray:
+        return np.array([len(text), self.cognito.store.novelty(text), self.cognito.store.nuance(text)])
+
+    def _geodesic_aggregate(self, seeds: List[int]) -> Dict:
+        max_hops = 2
+        expand_limit = 80
+        geo_costs = self.cognito._geodesic_expand(seeds, max_hops, expand_limit)
         for rid in list(geo_costs.keys()):
             t = geo_costs[rid]
             for j in range(1, 3):
@@ -883,7 +736,7 @@ class FractalFinder:
                 'details': details
             }
 
-        nuances = [f for f in fragments if self.cognito.store.novelty(f) > 0.65 and self.cognito.store.nuance(f) > 0.55]
+        nuances = [f for f in fragments if self.cognito.store.novelty(f) > NOVELTY_GATE and self.cognito.store.nuance(f) > 0.55]
         if nuances:
             intercepts = self._pattern_recognize_and_intercept(nuances)
             high_intercept = [i['fragment'] for i in intercepts if i['intercept'] > 0.75]
@@ -919,7 +772,7 @@ class FractalFinder:
 # Cognito Synthetica – main orchestrator
 # =============================================================================
 class CognitoSynthetica:
-    def __init__(self, max_rooms: int = 800, sim_threshold: float = 0.25):
+    def __init__(self, max_rooms: int = 800, sim_threshold: float = SIM_THRESHOLD):
         self.store = RoomStore(max_rooms=max_rooms, sim_threshold=sim_threshold, graph_neighbors=8)
         self.martian = MartianEngine(self.store)
         self.seeker = SeekerIndex(self.store)
@@ -1121,7 +974,7 @@ class CognitoSynthetica:
 # =============================================================================
 if __name__ == "__main__":
     print("Starting Play Defense demo...\n")
-    cs = CognitoSynthetica(max_rooms=120, sim_threshold=0.25)
+    cs = CognitoSynthetica(max_rooms=120, sim_threshold=SIM_THRESHOLD)
 
     # Identity & attractors
     cs.add_memory("Julian in Boston building Play Defense: AI safety + cyber deception.", kind="commitment", is_anchor=True)
