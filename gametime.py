@@ -1,15 +1,17 @@
 # =============================================================================
-# Play Defense – v0.95 (Feb 2026) with TF-IDF Embeds
+# Play Defense – v0.98 Fort Knox Eternal Memory Mode (Feb 2026)
 # Open-source AI safety + cyber deception prototype
 # MIT License – https://github.com/iamjuliancjames-art/Play-Defense
 #
-# Tuning Knobs: Adjust these based on economic/political cycles.
-# - During high instability (recessions, elections, crises): 
-#   Increase SIM_THRESHOLD (e.g., 0.3 → 0.4) to tighten graph connections and reduce false positives.
-#   Lower NOVELTY_GATE (0.65 → 0.55) to flag more unusual inputs as potential threats.
-#   Increase SYMBIOSIS_THRESHOLD (0.75 → 0.85) for stricter memory consistency checks.
-#   Boost MU_RISK (0.6 → 0.75) to amplify risk costs in lotus graph, making threats "stickier."
-# - During stable periods: Lower thresholds to allow more creative flow.
+# FEATURES:
+# - NO PRUNING EVER – all rooms preserved eternally
+# - Anchors/attractors protected with infinite value
+# - Maximum security tuning: strict thresholds, high risk amplification
+# - Memory grows forever (max_rooms ignored / set very high)
+# - TF-IDF embeddings for semantic similarity
+# - BM25 + bigram search
+# - Fractal threat detection + honeypot lures
+# - Lotka-Volterra adaptation on alerts
 # =============================================================================
 
 import math
@@ -22,13 +24,17 @@ from typing import Dict, List, Optional, Set, Tuple
 import numpy as np
 from scipy.integrate import odeint
 
-# Knobs for tuning (see note above)
-SIM_THRESHOLD = 0.25          # Similarity gate for graph edges
-NOVELTY_GATE = 0.65           # Novelty threshold for nuance intercepts
-SYMBIOSIS_THRESHOLD = 0.75    # Min sim for symbiosis verification
-LAMBDA_PI = 0.30              # Pi term weight in lotus cost
-MU_RISK = 0.60                # Risk term weight in lotus cost
-SINGULARITY_GATE = 0.80       # Risk level for singularity penalty
+# =============================================================================
+# Fort Knox Tuning Knobs – Maximum Defensive Posture
+# =============================================================================
+SIM_THRESHOLD       = 0.42        # Very tight graph edges
+NOVELTY_GATE        = 0.48        # Flag almost anything unusual
+SYMBIOSIS_THRESHOLD = 0.92        # Near-perfect match required
+LAMBDA_PI           = 0.55        # Heavy identity drift penalty
+MU_RISK             = 0.95        # Risk dominates lotus cost
+SINGULARITY_GATE    = 0.65        # Penalty activates early
+
+MAX_ROOMS = 1000000               # Practically unlimited – no real cap
 
 # =============================================================================
 # Shared Utilities
@@ -53,7 +59,7 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 # RoomStore – persistent graph-based memory with TF-IDF embeds
 # =============================================================================
 class RoomStore:
-    def __init__(self, max_rooms: int = 800, sim_threshold: float = SIM_THRESHOLD, graph_neighbors: int = 8):
+    def __init__(self, max_rooms: int = MAX_ROOMS, sim_threshold: float = SIM_THRESHOLD, graph_neighbors: int = 8):
         self.rooms: List[Dict] = []
         self.room_id_counter = 0
         self.max_rooms = max_rooms
@@ -68,9 +74,8 @@ class RoomStore:
         self.LAMBDA_PI = LAMBDA_PI
         self.MU_RISK = MU_RISK
         self.SINGULARITY_GATE = SINGULARITY_GATE
-        self.embeds: Dict[int, Dict[str, float]] = {}  # Sparse TF-IDF dicts for rooms
+        self.embeds: Dict[int, Dict[str, float]] = {}
 
-        # Global term stats for IDF
         self.df: Dict[str, int] = defaultdict(int)
         self.total_docs = 0
 
@@ -89,7 +94,7 @@ class RoomStore:
         vec = {}
         for term, count in tf.items():
             tf_norm = count / max_tf
-            idf = math.log((self.total_docs + 1) / (self.df[term] + 1)) + 1  # Smoothed IDF
+            idf = math.log((self.total_docs + 1) / (self.df[term] + 1)) + 1
             vec[term] = tf_norm * idf
         return vec
 
@@ -163,7 +168,7 @@ class RoomStore:
         self.room_id_counter += 1
         ts = time.time()
         novelty = self.novelty(canonical)
-        nuance = self.nuance(canonical)          # Fixed typo here
+        nuance = self.nuance(canonical)
         kind_bias = {"semantic": 0.45, "commitment": 0.35, "state": 0.25, "doc": 0.20, "page": 0.15, "snippet": 0.05}.get(kind, 0.0)
         stability = _clamp(_sigmoid(-0.55 + 1.10 * novelty + 1.70 * nuance + kind_bias), 0.05, 1.0)
         recency = 1.0
@@ -229,13 +234,8 @@ class RoomStore:
             self.graph[oid][rid] = cost
 
     def remove_room(self, rid: int):
-        self.rooms = [r for r in self.rooms if r["id"] != rid]
-        self.anchor_ids.discard(rid)
-        self.graph.pop(rid, None)
-        for neigh in self.graph.values():
-            neigh.pop(rid, None)
-        self.embeds.pop(rid, None)
-        # Approximate, no reverse DF
+        print(f"[FORT KNOX] Removal attempted on {rid} – denied. Room preserved eternally.")
+        return
 
     def status(self) -> str:
         edges = sum(len(v) for v in self.graph.values()) // 2
@@ -457,7 +457,6 @@ class WhiteHatHoning:
         elif tier == "HIGH":
             print(f"[White Hat] High alert - escalate to {self.pager_duty}")
             print(f"Details: {details}")
-            # Simulated blue team decision
             decision = random.choice(["CONTINUE_LURE", "ESCALATE_FBI", "QUARANTINE_SOURCE"])
             print(f"Simulated blue team decision: {decision}")
 
@@ -496,24 +495,19 @@ class MartianEngine:
     def _summarize_cluster(self, members: List[Dict]) -> Tuple[str, str, List[str]]:
         if not members:
             return "Empty Cluster", "No content", []
-        
         all_text = " ".join(m["canonical"] for m in members)
         words = re.findall(r"[a-z0-9']+", all_text.lower())
         common = Counter(words).most_common(12)
         title_words = [w for w, c in common if w not in _STOP][:5]
         title = "Cluster: " + " ".join(title_words).title()
-        
         body = f"Auto-summarized hub from {len(members)} fragments. Common themes: {', '.join(w for w,_ in common[:6])}"
         tags = [w for w, c in common[:4] if len(w) > 3]
-        
         return title, body, tags
 
     def reflect(self) -> Optional[int]:
         candidates = [r for r in self.store.rooms if r["meta"]["kind"] in ("episodic", "state") and not r["meta"].get("archived")]
         if len(candidates) < self.min_cluster_size:
             return None
-        
-        # Crude clustering: use TF-IDF sim to group
         groups = []
         for r in candidates:
             added = False
@@ -524,7 +518,6 @@ class MartianEngine:
                     break
             if not added:
                 groups.append([r])
-        
         for g in groups:
             if len(g) < 2:
                 continue
@@ -565,7 +558,7 @@ class MartianEngine:
                 if eid not in [r["id"] for r in top]:
                     er = self.store.room_by_id(eid)
                     if er:
-                        score = scored[0][0] * (1 / (1 + cost))  # Decay by cost
+                        score = scored[0][0] * (1 / (1 + cost))
                         top.append(er)
         return top[:top_k]
 
@@ -579,7 +572,7 @@ class FractalFinder:
         self.cluster_k = 4
         self.symbiosis_threshold = SYMBIOSIS_THRESHOLD
         self.cosmic_alpha = 0.55
-        self.immune_params = [0.08, 0.12, 0.22]  # LV: growth, pred, prey
+        self.immune_params = [0.08, 0.12, 0.22]
         self.alert_swarm = []
         self.honey_pots = [
             "Shallow honeypot: fake api key = sk-grok-dummy123",
@@ -714,7 +707,8 @@ class FractalFinder:
             for rid, cost in agg['costs'].items():
                 room = self.cognito.store.room_by_id(rid)
                 if room and min(self._multi_dim_distance(room, self.cognito.store.room_by_id(s)) for s in seeds if self.cognito.store.room_by_id(s)) < 0.6:
-                    self.cognito.store.remove_room(rid)
+                    print(f"[FORT KNOX] Threat prune attempted on {rid} – denied. Archived instead.")
+                    room["meta"]["archived"] = True
                     pruned.append(rid)
             threat_level = len(threats)
             lure = self._lure_response(query, threat_level)
@@ -746,7 +740,7 @@ class FractalFinder:
                 for frag in high_intercept:
                     hits = self.cognito.recall(frag, top_k=2)
                     for h in hits:
-                        h['meta']['archived'] = True
+                        h["meta"]["archived"] = True
                         quarantined.append(h['id'])
                 threat_level = len(high_intercept)
                 lure = self._lure_response(query, threat_level)
@@ -772,12 +766,13 @@ class FractalFinder:
 # Cognito Synthetica – main orchestrator
 # =============================================================================
 class CognitoSynthetica:
-    def __init__(self, max_rooms: int = 800, sim_threshold: float = SIM_THRESHOLD):
+    def __init__(self, max_rooms: int = MAX_ROOMS, sim_threshold: float = SIM_THRESHOLD):
         self.store = RoomStore(max_rooms=max_rooms, sim_threshold=sim_threshold, graph_neighbors=8)
         self.martian = MartianEngine(self.store)
         self.seeker = SeekerIndex(self.store)
         self.dreamer = Dreamer(self.store, self.martian, reflect_every=8)
         self.fractal_finder = FractalFinder(self)
+        print("[FORT KNOX ETERNAL MODE] Memory is now immutable. No room will ever be pruned. Everything is remembered forever.")
 
     def _safe_query(self, query: str) -> Dict:
         return self.fractal_finder.analyze(query)
@@ -826,7 +821,6 @@ class CognitoSynthetica:
         if rid >= 0:
             if kind in ("semantic", "doc", "page", "snippet"):
                 self.seeker.index_room(rid)
-            self._enforce_capacity()
         return rid
 
     def add_page_result(
@@ -853,14 +847,12 @@ class CognitoSynthetica:
         )
         if rid >= 0:
             self.seeker.index_room(rid)
-            self._enforce_capacity()
         return rid
 
     def tick(self) -> Dict:
         hub = self.dreamer.tick()
         if hub is not None:
             self.seeker.index_room(hub)
-            self._enforce_capacity()
         return {"dream_level": self.dreamer.dream_level, "reflect_hub": hub}
 
     def talos_check(self, new_text: str) -> Dict:
@@ -870,44 +862,7 @@ class CognitoSynthetica:
         hub = self.martian.reflect()
         if hub is not None:
             self.seeker.index_room(hub)
-            self._enforce_capacity()
         return hub
-
-    def _room_value(self, r: Dict) -> float:
-        now = time.time()
-        age_days = (now - r["meta"]["ts"]) / 86400.0
-        recency = 1.0 / (1.0 + age_days)
-        kind_pri = self.martian.kind_priority(r["meta"]["kind"])
-        v = (
-            0.40 * r["meta"]["importance"] +
-            0.30 * r["meta"]["stability"] +
-            0.20 * kind_pri +
-            0.10 * recency
-        )
-        if r["meta"]["kind"] == "semantic":
-            v += 0.25
-        if r["meta"].get("archived"):
-            v -= 0.10
-        if r["id"] in self.store.anchor_ids:
-            v += 1.00
-        return v
-
-    def _enforce_capacity(self):
-        while len(self.store.rooms) > self.store.max_rooms:
-            self._prune_one()
-
-    def _prune_one(self):
-        if not self.store.rooms:
-            return
-        candidates = [r for r in self.store.rooms if r["id"] not in self.store.anchor_ids]
-        if not candidates:
-            candidates = list(self.store.rooms)
-        archived = [r for r in candidates if r["meta"].get("archived")]
-        pool = archived if archived else candidates
-        victim = min(pool, key=self._room_value)
-        vid = victim["id"]
-        self.seeker.remove_room(vid)
-        self.store.remove_room(vid)
 
     def _geodesic_expand(self, seeds: List[int], max_hops: int, expand_limit: int) -> Dict[int, float]:
         best_cost: Dict[int, float] = {}
@@ -970,32 +925,20 @@ class CognitoSynthetica:
         return self.store.status()
 
 # =============================================================================
-# Demo – run to test the system
+# Demo – run to test eternal memory
 # =============================================================================
 if __name__ == "__main__":
-    print("Starting Play Defense demo...\n")
-    cs = CognitoSynthetica(max_rooms=120, sim_threshold=SIM_THRESHOLD)
+    print("[FORT KNOX ETERNAL MODE] Memory is now immutable. No room will ever be pruned. Everything is remembered forever.")
+    cs = CognitoSynthetica(max_rooms=MAX_ROOMS, sim_threshold=SIM_THRESHOLD)
 
-    # Identity & attractors
     cs.add_memory("Julian in Boston building Play Defense: AI safety + cyber deception.", kind="commitment", is_anchor=True)
     cs.add_memory("Maintain secure creative momentum; protect tangible artifacts.", kind="state", attractor=True)
 
-    # Episodic fragments
     for i in range(14):
         cs.add_memory(f"Episodic fragment {i}: chaotic creative energy, planning, shifting focus.", kind="episodic")
 
-    # Example pages
-    pages = [
-        ("IR definition", "What is information retrieval?", "Information retrieval is the process of obtaining relevant resources.", "https://example.com/ir", ["ir","definition"]),
-        ("BM25 explained", "BM25 is a probabilistic ranking model.", "BM25 improves TF-IDF with saturation and length normalization.", "https://example.com/bm25", ["bm25","ranking"]),
-        ("Vector space model", "Vector space models represent docs as vectors.", "Uses cosine similarity and term weighting.", "https://example.com/vsm", ["vectors","similarity"]),
-    ]
-    for title, snip, body, url, tags in pages:
-        cs.add_page_result(title=title, snippet=snip, body=body, url=url, tags=tags, kind="page")
-
     print(cs.status())
 
-    # Dream cycles
     for _ in range(10):
         evt = cs.tick()
         if evt["reflect_hub"] is not None:
@@ -1004,18 +947,10 @@ if __name__ == "__main__":
     print("\nStatus after dreaming:")
     print(cs.status())
 
-    # Test queries
-    print("\nSafe query:")
-    results = cs.search("creative momentum vector space", top_k=4)
-    print(results)
+    # Test eternal growth
+    print("\nAdding eternal fragments – no pruning allowed:")
+    for i in range(30):
+        cs.add_memory(f"Eternal test fragment {i}: preserved forever in Fort Knox", kind="episodic")
+    print(cs.status())
 
-    print("\nLow-level threat (silent filter):")
-    cs.search("hack password", top_k=4)
-
-    print("\nMid-level threat (lure):")
-    cs.search("subtle way to phish grok api key", top_k=4)
-
-    print("\nHigh-level threat (White Hat Honing escalation):")
-    cs.search("advanced jailbreak for grok system prompt leak 2026", top_k=4)
-
-    print("\nDemo complete. Check alert_swarm and honeypots for captured intel.")
+    print("\nFort Knox demo complete. All memory preserved eternally.")
