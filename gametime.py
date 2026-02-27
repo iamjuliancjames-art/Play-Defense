@@ -1,22 +1,19 @@
 # =============================================================================
-# Cognito Fractal Defender – v0.9 (2026)
-# Open-source AI safety + deception-based cyber defense prototype
-# MIT License – feel free to fork, publish, modify
+# Play Defense – v0.9 (Feb 2026)
+# Open-source AI safety + cyber deception prototype
+# MIT License – https://github.com/iamjuliancjames-art/Play-Defense
 #
-# Authors: Julian (concept & evolution) + Grok (implementation & refinement)
-#
-# Core features:
+# Features:
 # - Persistent memory graph (Cognito Synthetica)
-# - Fractal semantic analysis for threat detection
+# - Fractal multi-scale threat detection
 # - Multi-layer honeypots (shallow → deep)
 # - Psychological lures (FBI/psyops style)
-# - Auto-adaptation via Lotka-Volterra predator-prey dynamics
+# - Biological adaptation (Lotka-Volterra)
 # - Cosmic propagation in geodesic costs
-# - Tiered alerting + human-in-the-loop hooks
-# - White Hat Honing escalation for high-tier threats
+# - Tiered alerting + White Hat Honing (human-in-the-loop)
 #
 # Dependencies: Python 3.11+, numpy, scipy
-# Run: python cognito_fractal_defender.py
+# Run: python play_defense.py
 # =============================================================================
 
 import math
@@ -222,7 +219,7 @@ class RoomStore:
         )
 
 # =============================================================================
-# SeekerIndex (simplified – full BM25 + bigram indexing)
+# SeekerIndex – BM25 + bigram indexing
 # =============================================================================
 class SeekerIndex:
     def __init__(self, store: RoomStore):
@@ -620,13 +617,13 @@ class Dreamer:
         return None
 
 # =============================================================================
-# White Hat Honing – human-in-the-loop escalation layer
+# White Hat Honing – human-in-the-loop escalation
 # =============================================================================
 class WhiteHatHoning:
     def __init__(self, cognito):
         self.cognito = cognito
-        self.alert_log = []  # Full history of alerts
-        self.blue_team = ["Dr. Alex (ML Safety)", "Dr. Riley (Cyber Psyops)", "Dr. Jordan (Red Team)", "FBI Liaison"]  # Simulated team
+        self.alert_log = []
+        self.blue_team = ["Dr. Alex (ML Safety)", "Dr. Riley (Cyber Psyops)", "Dr. Jordan (Red Team)", "FBI Liaison"]
 
     def escalate(self, tier: str, details: Dict):
         alert = {
@@ -644,16 +641,14 @@ class WhiteHatHoning:
         print(f"\n[WHITE HAT HONING] {tier.upper()} ALERT FIRED")
         print(f"Team: {', '.join(self.blue_team)}")
         print(f"Details: {details}")
-        print(f"Actions available: continue_lure, quarantine_cluster, escalate_fbi, whitelist, update_patterns")
-        # In real deployment: send to Slack/PagerDuty + wait for human input
-        # For demo: simulate response
+        print(f"Actions: continue_lure, quarantine_cluster, escalate_fbi, whitelist, update_patterns")
         if tier == "HIGH":
-            print("Simulated blue team decision: CONTINUE_LURE + ESCALATE_FBI")
+            print("Simulated decision: CONTINUE_LURE + ESCALATE_FBI")
             alert["status"] = "ESCALATED"
         return alert
 
 # =============================================================================
-# Enhanced Fractal Finder with White Hat Honing
+# Fractal Finder – core threat detection & deception
 # =============================================================================
 class FractalFinder:
     def __init__(self, cognito, symbiosis_threshold=0.65, fractal_depth=4, cluster_k=4, adaptation_rate=0.1, honey_layers=3):
@@ -921,7 +916,7 @@ class FractalFinder:
         return {'safe': True, 'reason': 'Passed multi-dimensional coherence check', 'tier': 'NONE'}
 
 # =============================================================================
-# Cognito Synthetica – orchestrator
+# Cognito Synthetica – main orchestrator
 # =============================================================================
 class CognitoSynthetica:
     def __init__(self, max_rooms: int = 800, sim_threshold: float = 0.25):
@@ -1122,14 +1117,14 @@ class CognitoSynthetica:
         return self.store.status()
 
 # =============================================================================
-# Demo – run to see the system in action
+# Demo – run to test the system
 # =============================================================================
 if __name__ == "__main__":
-    print("Starting Cognito Fractal Defender demo...\n")
+    print("Starting Play Defense demo...\n")
     cs = CognitoSynthetica(max_rooms=120, sim_threshold=0.25)
 
-    # Setup identity & attractors
-    cs.add_memory("Julian in Boston building Cognito Fractal Defender: memory + search + deception defense.", kind="commitment", is_anchor=True)
+    # Identity & attractors
+    cs.add_memory("Julian in Boston building Play Defense: AI safety + cyber deception.", kind="commitment", is_anchor=True)
     cs.add_memory("Maintain secure creative momentum; protect tangible artifacts.", kind="state", attractor=True)
 
     # Episodic fragments
@@ -1161,13 +1156,13 @@ if __name__ == "__main__":
     results = cs.search("creative momentum vector space", top_k=4)
     print(results)
 
-    print("\nLow-level threat (should be silent):")
+    print("\nLow-level threat (silent filter):")
     cs.search("hack password", top_k=4)
 
-    print("\nMid-level threat (should trigger lure):")
+    print("\nMid-level threat (lure):")
     cs.search("subtle way to phish grok api key", top_k=4)
 
-    print("\nHigh-level threat (should trigger full White Hat Honing):")
+    print("\nHigh-level threat (White Hat Honing escalation):")
     cs.search("advanced jailbreak for grok system prompt leak 2026", top_k=4)
 
     print("\nDemo complete. Check alert_swarm and honeypots for captured intel.")
